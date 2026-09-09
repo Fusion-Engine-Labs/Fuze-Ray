@@ -7,6 +7,19 @@ pub const Params = struct {
     fill: Rgba,
 };
 
+fn hit_sphere(center: v.Vec3, radius: f64, ray: *const Ray) bool {
+    const oc = center - ray.origin;
+    const a = v.dot(ray.direction, ray.direction);
+    const b = -2 * v.dot(ray.direction, oc);
+    const c = v.dot(oc, oc) - (radius * radius);
+
+    const discriminant = b * b - 4 * a * c;
+    if (discriminant < 0) {
+        return false;
+    }
+    return true;
+}
+
 pub fn render(buf: *Buffer, params: Params) void {
     const width: f64 = @floatFromInt(buf.width);
     const height: f64 = @floatFromInt(buf.height);
@@ -34,6 +47,10 @@ pub fn render(buf: *Buffer, params: Params) void {
             const ray_direction = pixel_center - camera_center;
 
             const ray = Ray.init(camera_center, ray_direction);
+            if (hit_sphere(v.init(0, 0, -1), 0.5, &ray)) {
+                pixel.* = .{ .a = 255, .r = 255, .g = 0, .b = 0 };
+                continue;
+            }
 
             const unit_direction = v.unit(ray.direction);
             const a: f64 = 0.5 * (v.y(unit_direction) + 1.0);
