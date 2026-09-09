@@ -23,10 +23,10 @@ pub fn z(v: Vec3) f64 {
 }
 
 pub fn magnitude(v: Vec3) f64 {
-    return @sqrt(full_magnitude(v));
+    return @sqrt(magnitude_squared(v));
 }
 
-pub fn full_magnitude(v: Vec3) f64 {
+pub fn magnitude_squared(v: Vec3) f64 {
     return @reduce(.Add, v * v);
 }
 
@@ -45,7 +45,7 @@ pub fn reflect(v: Vec3, normal: Vec3) Vec3 {
 pub fn refract(v: Vec3, normal: Vec3, refraction_ratio: f64) Vec3 {
     const cos_theta = @min(dot(-v, normal), 1.0);
     const r_out_perp = splat(refraction_ratio) * (v + splat(cos_theta) * normal);
-    const r_out_parallel = splat(-@sqrt(@abs(1 - full_magnitude(r_out_perp)))) *
+    const r_out_parallel = splat(-@sqrt(@abs(1 - magnitude_squared(r_out_perp)))) *
         normal;
 
     return r_out_perp + r_out_parallel;
@@ -97,7 +97,7 @@ pub fn randomRange(r: std.Random, min: f64, max: f64) Vec3 {
 pub fn randomUnit(r: std.Random) Vec3 {
     while (true) {
         const v = randomRange(r, -1, 1);
-        const m2 = full_magnitude(v);
+        const m2 = magnitude_squared(v);
         if (std.math.floatEpsAt(f64, 0) < m2 and m2 <= 1) {
             return v / @sqrt(splat(m2));
         }
@@ -116,7 +116,7 @@ pub fn randomHemisphere(r: std.Random, normal: Vec3) Vec3 {
 pub fn randomUnitDisk(r: std.Random) Vec3 {
     while (true) {
         const p: Vec3 = .{ r.float(f64) * 2 - 1, r.float(f64) * 2 - 1, 0 };
-        if (full_magnitude(p) < 1) {
+        if (magnitude_squared(p) < 1) {
             return p;
         }
     }

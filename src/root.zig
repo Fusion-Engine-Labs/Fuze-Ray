@@ -7,17 +7,17 @@ pub const Params = struct {
     fill: Rgba,
 };
 
-fn hit_sphere(center: v.Vec3, radius: f64, ray: *const Ray) bool {
+fn hit_sphere(center: v.Vec3, radius: f64, ray: *const Ray) f64 {
     const oc = center - ray.origin;
-    const a = v.dot(ray.direction, ray.direction);
-    const b = -2 * v.dot(ray.direction, oc);
+    const a = v.magnitude_squared(ray.direction);
+    const h = v.dot(ray.direction, oc);
     const c = v.dot(oc, oc) - (radius * radius);
 
-    const discriminant = b * b - 4 * a * c;
+    const discriminant = h * h - a * c;
     if (discriminant < 0) {
-        return false;
+        return -1;
     }
-    return true;
+    return (h - @sqrt(discriminant)) / a;
 }
 
 pub fn render(buf: *Buffer, params: Params) void {
@@ -47,8 +47,10 @@ pub fn render(buf: *Buffer, params: Params) void {
             const ray_direction = pixel_center - camera_center;
 
             const ray = Ray.init(camera_center, ray_direction);
-            if (hit_sphere(v.init(0, 0, -1), 0.5, &ray)) {
-                pixel.* = .{ .a = 255, .r = 255, .g = 0, .b = 0 };
+            const t = hit_sphere(v.init(0, 0, -1), 0.5, &ray);
+            if (t > 0.0) {
+                const N = v.unit(ray.at(t) - v.init(0, 0, -1));
+                pixel.* = .fromColor(v.splat(0.5) * v.init(v.x(N) + 1, v.y(N) + 1, v.z(N) + 1));
                 continue;
             }
 
