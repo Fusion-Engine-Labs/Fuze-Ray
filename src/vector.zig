@@ -2,16 +2,15 @@ const std = @import("std");
 
 pub const Vec3 = @Vector(3, f64);
 
-pub const Fmt = std.fmt.Alt(Vec3, format);
-fn format(v: Vec3, w: *std.Io.Writer) !void {
-    try w.print("{d} {d} {d}", .{ v[0], v[1], v[2] });
-}
-
 pub const Point = Vec3;
 pub const Color = Vec3;
 
 pub const zero: Vec3 = .{ 0, 0, 0 };
 pub const one: Vec3 = .{ 1, 1, 1 };
+
+pub fn init(v1: f64, v2: f64, v3: f64) Vec3 {
+    return .{ v1, v2, v3 };
+}
 
 pub fn x(v: Vec3) f64 {
     return v[0];
