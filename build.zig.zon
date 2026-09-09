@@ -1,0 +1,18 @@
+.{
+    .name = .ray,
+    .version = "0.0.0",
+    .fingerprint = 0xfd0bf652e8b5eda1,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .zGUI = .{
+            .url = "git+https://github.com/Fusion-Engine-Labs/zGUI.git?ref=modern#3556f7f4a75ca9b050fc0c5077ec900144b6a3d0",
+            .hash = "zGUI-0.0.0-LDuKkaF2EQCbI5eTRtnBSkqbA-BEoXUYnMLmzaR2IEDK",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "assets",
+    },
+}
