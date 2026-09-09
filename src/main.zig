@@ -39,7 +39,7 @@ pub fn main(init: std.process.Init) !void {
     try gl.syncFontAtlas(&font_atlas);
     state.setFontAtlas(&font_atlas);
 
-    var renderer = try Renderer.init(gpa, render_width, render_height, ui.initialFill());
+    var renderer = try Renderer.init(gpa, io, render_width, render_height, ui.initialFill());
     defer renderer.deinit();
 
     var texture = try gl.createTextureRgba(
@@ -55,6 +55,7 @@ pub fn main(init: std.process.Init) !void {
     var last_cursor: ?gui.CursorKind = null;
     var last_frame_ns = nowNs(io);
     var last_render_ns: ?i96 = null;
+    var render_pending = false;
     var fps: ?f32 = null;
     var fps_window_start_ns = last_frame_ns;
     var fps_window_frames: u32 = 0;
@@ -91,20 +92,25 @@ pub fn main(init: std.process.Init) !void {
         try panel.update(&state);
         renderer.fill = panel.fill();
 
-        const needs_render = panel.startClicked(&state);
+        if (panel.startClicked(&state)) {
+            try renderer.start();
+            render_pending = true;
+        }
 
         try panel.fitViewport(&state, renderer.buffer.width, renderer.buffer.height);
 
-        if (needs_render) {
-            const render_start_ns = nowNs(io);
-            renderer.render();
-            last_render_ns = nowNs(io) - render_start_ns;
+        if (render_pending) {
+            const finished = !renderer.isRendering();
             try gl.uploadTextureRgba(
                 texture,
                 renderer.buffer.width,
                 renderer.buffer.height,
                 renderer.buffer.bytes(),
             );
+            if (finished) {
+                last_render_ns = renderer.elapsed_ns;
+                render_pending = false;
+            }
         }
 
         try panel.sync(&state, .{
