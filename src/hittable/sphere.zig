@@ -1,3 +1,4 @@
+const Interval = @import("../interval.zig");
 const HitRecord = @import("hit_record.zig");
 const v = @import("../vector.zig");
 const Ray = @import("../ray.zig");
@@ -17,8 +18,7 @@ pub fn init(center: v.Point, radius: f64) Sphere {
 pub fn hit(
     self: Sphere,
     ray: *const Ray,
-    ray_tmin: f64,
-    ray_tmax: f64,
+    ray_t: Interval,
     hit_record: *HitRecord,
 ) bool {
     const oc = self.center - ray.origin;
@@ -33,9 +33,9 @@ pub fn hit(
     const sqrtd = @sqrt(discriminant);
 
     var root = (h - sqrtd) / a;
-    if (root <= ray_tmin or ray_tmax <= root) {
+    if (!ray_t.surrounds(root)) {
         root = (h + sqrtd) / a;
-        if (root <= ray_tmin or ray_tmax <= root) {
+        if (!ray_t.surrounds(root)) {
             return false;
         }
     }

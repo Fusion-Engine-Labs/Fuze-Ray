@@ -56,8 +56,7 @@ pub fn render(buf: *Buffer, params: Params) !void {
             var hit_record: HitRecord = undefined;
             if (hittable_list.hit(
                 &ray,
-                0,
-                std.math.floatMax(f64),
+                .init(0, std.math.floatMax(f64)),
                 &hit_record,
             )) {
                 pixel.* = .fromColor(v.splat(0.5) * (hit_record.normal + v.init(1, 1, 1)));
