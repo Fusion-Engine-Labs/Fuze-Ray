@@ -1,3 +1,8 @@
+const std = @import("std");
+
+const HittableList = @import("hittable/hittable_list.zig");
+const HitRecord = @import("hittable/hit_record.zig");
+const Sphere = @import("hittable/sphere.zig");
 pub const Rgba = @import("utils.zig").Rgba;
 pub const Buffer = @import("buffer.zig");
 const v = @import("vector.zig");
@@ -7,22 +12,21 @@ pub const Params = struct {
     fill: Rgba,
 };
 
-fn hit_sphere(center: v.Vec3, radius: f64, ray: *const Ray) f64 {
-    const oc = center - ray.origin;
-    const a = v.magnitude_squared(ray.direction);
-    const h = v.dot(ray.direction, oc);
-    const c = v.dot(oc, oc) - (radius * radius);
-
-    const discriminant = h * h - a * c;
-    if (discriminant < 0) {
-        return -1;
-    }
-    return (h - @sqrt(discriminant)) / a;
-}
-
-pub fn render(buf: *Buffer, params: Params) void {
+pub fn render(buf: *Buffer, params: Params) !void {
     const width: f64 = @floatFromInt(buf.width);
     const height: f64 = @floatFromInt(buf.height);
+
+    var hittable_list = HittableList.init();
+    defer hittable_list.deinit(buf.allocator);
+
+    try hittable_list.add(
+        buf.allocator,
+        .{ .sphere = Sphere.init(v.init(0, -100.5, -1), 100) },
+    );
+    try hittable_list.add(
+        buf.allocator,
+        .{ .sphere = Sphere.init(v.init(0, 0, -1), 0.5) },
+    );
 
     const focal_length: f64 = 1.0;
     const viewport_height: f64 = 2.0;
@@ -35,7 +39,8 @@ pub fn render(buf: *Buffer, params: Params) void {
     const pixel_delta_u = viewport_u / v.splat(width);
     const pixel_delta_v = viewport_v / v.splat(height);
 
-    const viewport_upper_left = camera_center - v.init(0, 0, focal_length) - viewport_u / v.splat(2) - viewport_v / v.splat(2);
+    const viewport_upper_left =
+        camera_center - v.init(0, 0, focal_length) - viewport_u / v.splat(2) - viewport_v / v.splat(2);
     const pixel00_loc = viewport_upper_left + v.splat(0.5) * (pixel_delta_u + pixel_delta_v);
 
     const fill = params.fill.toColor();
@@ -47,10 +52,15 @@ pub fn render(buf: *Buffer, params: Params) void {
             const ray_direction = pixel_center - camera_center;
 
             const ray = Ray.init(camera_center, ray_direction);
-            const t = hit_sphere(v.init(0, 0, -1), 0.5, &ray);
-            if (t > 0.0) {
-                const N = v.unit(ray.at(t) - v.init(0, 0, -1));
-                pixel.* = .fromColor(v.splat(0.5) * v.init(v.x(N) + 1, v.y(N) + 1, v.z(N) + 1));
+
+            var hit_record: HitRecord = undefined;
+            if (hittable_list.hit(
+                &ray,
+                0,
+                std.math.floatMax(f64),
+                &hit_record,
+            )) {
+                pixel.* = .fromColor(v.splat(0.5) * (hit_record.normal + v.init(1, 1, 1)));
                 continue;
             }
 
