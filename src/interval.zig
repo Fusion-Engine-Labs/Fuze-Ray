@@ -21,5 +21,17 @@ pub fn surrounds(self: Interval, x: f64) bool {
     return self.min < x and x < self.max;
 }
 
+pub fn clamp(self: Interval, x: f64) f64 {
+    if (x < self.min) {
+        return self.min;
+    }
+
+    if (x > self.max) {
+        return self.max;
+    }
+
+    return x;
+}
+
 pub const empty = Interval.init(std.math.floatMax(f64, std.math.floatMin(f64)));
 pub const universe = Interval.init(std.math.floatMin(f64, std.math.floatMax(f64)));
