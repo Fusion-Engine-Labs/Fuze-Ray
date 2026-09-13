@@ -12,6 +12,7 @@ pub threadlocal var rand_state = std.Random.DefaultPrng.init(70);
 
 const Camera = @This();
 
+io: std.Io,
 width: f64,
 height: f64,
 center: v.Point,
@@ -22,7 +23,7 @@ samples_per_pixel: u32,
 pixel_samples_scale: f64,
 buffer: *Buffer,
 
-pub fn init(buffer: *Buffer) Camera {
+pub fn init(buffer: *Buffer, io: std.Io) Camera {
     const width: f64 = @floatFromInt(buffer.width);
     const height: f64 = @floatFromInt(buffer.height);
 
@@ -44,6 +45,7 @@ pub fn init(buffer: *Buffer) Camera {
     const samples_per_pixel: u32 = 10;
 
     return .{
+        .io = io,
         .width = width,
         .height = height,
         .buffer = buffer,
@@ -60,17 +62,29 @@ pub fn render(self: *const Camera, params: Params, world: *const HittableList) !
     @setFloatMode(.optimized);
     const fill = params.fill.toColor();
 
-    for (0..self.buffer.height) |y| {
-        for (self.buffer.row(@intCast(y)), 0..) |*pixel, x| {
-            var pixel_color: v.Vec3 = v.zero;
-            for (0..self.samples_per_pixel) |_| {
-                const ray = self.get_ray(x, y);
-                pixel_color += ray_color(&ray, world, fill);
-            }
+    var group: std.Io.Group = .init;
+    defer group.cancel(self.io);
 
-            pixel_color *= v.splat(self.pixel_samples_scale);
-            pixel.* = .fromColor(pixel_color);
+    for (0..self.buffer.height) |y| {
+        try group.concurrent(
+            self.io,
+            renderRow,
+            .{ self, fill, world, y },
+        );
+    }
+    try group.await(self.io);
+}
+
+fn renderRow(self: *const Camera, fill: v.Vec3, world: *const HittableList, y: usize) !void {
+    for (self.buffer.row(@intCast(y)), 0..) |*pixel, x| {
+        var pixel_color: v.Vec3 = v.zero;
+        for (0..self.samples_per_pixel) |_| {
+            const ray = self.get_ray(x, y);
+            pixel_color += ray_color(&ray, world, fill);
         }
+
+        pixel_color *= v.splat(self.pixel_samples_scale);
+        pixel.* = .fromColor(pixel_color);
     }
 }
 

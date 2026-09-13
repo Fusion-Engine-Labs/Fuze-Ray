@@ -11,7 +11,7 @@ pub const Params = struct {
     fill: Rgba,
 };
 
-pub fn render(buf: *Buffer, params: Params) !void {
+pub fn render(io: std.Io, buf: *Buffer, params: Params) !void {
     var hittable_list = HittableList.init();
     defer hittable_list.deinit(buf.allocator);
 
@@ -24,6 +24,6 @@ pub fn render(buf: *Buffer, params: Params) !void {
         .{ .sphere = Sphere.init(v.init(0, 0, -1), 0.5) },
     );
 
-    const camera = Camera.init(buf);
+    const camera = Camera.init(buf, io);
     try camera.render(params, &hittable_list);
 }
