@@ -1,3 +1,4 @@
+const Material = @import("../material/material.zig").Material;
 const v = @import("../vector.zig");
 const Ray = @import("../ray.zig");
 
@@ -7,6 +8,7 @@ p: v.Point,
 normal: v.Vec3,
 t: f64,
 front_face: bool,
+material: *const Material,
 
 pub fn set_face_normal(self: *HitRecord, ray: *const Ray, outward_normal: v.Vec3) void {
     self.front_face = v.dot(ray.direction, outward_normal) < 0;

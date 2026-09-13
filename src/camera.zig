@@ -16,6 +16,7 @@ io: std.Io,
 width: f64,
 height: f64,
 center: v.Point,
+max_depth: u32,
 pixel00_loc: v.Point,
 pixel_delta_u: v.Vec3,
 pixel_delta_v: v.Vec3,
@@ -50,6 +51,7 @@ pub fn init(buffer: *Buffer, io: std.Io) Camera {
         .height = height,
         .buffer = buffer,
         .center = center,
+        .max_depth = 50,
         .pixel00_loc = pixel00_loc,
         .pixel_delta_u = pixel_delta_u,
         .pixel_delta_v = pixel_delta_v,
@@ -80,7 +82,7 @@ fn renderRow(self: *const Camera, fill: v.Vec3, world: *const HittableList, y: u
         var pixel_color: v.Vec3 = v.zero;
         for (0..self.samples_per_pixel) |_| {
             const ray = self.get_ray(x, y);
-            pixel_color += ray_color(&ray, world, fill);
+            pixel_color += ray_color(&ray, world, fill, self.max_depth);
         }
 
         pixel_color *= v.splat(self.pixel_samples_scale);
@@ -107,10 +109,25 @@ fn sample_square() v.Vec3 {
     return v.init(r.float(f64) - 0.5, r.float(f64) - 0.5, 0);
 }
 
-fn ray_color(ray: *const Ray, world: *const HittableList, fill: v.Vec3) v.Vec3 {
+fn ray_color(ray: *const Ray, world: *const HittableList, fill: v.Vec3, depth: u32) v.Vec3 {
+    if (depth <= 0) {
+        return v.init(0, 0, 0);
+    }
+
     var hit_record: HitRecord = undefined;
-    if (world.hit(ray, .init(0, std.math.floatMax(f64)), &hit_record)) {
-        return v.splat(0.5) * (hit_record.normal + v.init(1, 1, 1));
+    if (world.hit(ray, .init(0, std.math.inf(f64)), &hit_record)) {
+        var scattered: Ray = undefined;
+        var attenuation: v.Color = undefined;
+
+        if (hit_record.material.scatter(ray, &hit_record, &attenuation, &scattered)) {
+            return attenuation * ray_color(
+                &scattered,
+                world,
+                fill,
+                depth - 1,
+            );
+        }
+        return v.zero;
     }
 
     const unit_direction = v.unit(ray.direction);

@@ -1,3 +1,4 @@
+const Material = @import("../material/material.zig").Material;
 const Interval = @import("../interval.zig");
 const HitRecord = @import("hit_record.zig");
 const v = @import("../vector.zig");
@@ -5,13 +6,15 @@ const Ray = @import("../ray.zig");
 
 const Sphere = @This();
 
+material: *const Material,
 center: v.Vec3,
 radius: f64,
 
-pub fn init(center: v.Point, radius: f64) Sphere {
+pub fn init(center: v.Point, radius: f64, material: *const Material) Sphere {
     return .{
         .center = center,
         .radius = @max(0, radius),
+        .material = material,
     };
 }
 
@@ -42,6 +45,7 @@ pub fn hit(
 
     hit_record.t = root;
     hit_record.p = ray.at(root);
+    hit_record.material = self.material;
 
     const outward_normal = (hit_record.p - self.center) / v.splat(self.radius);
     hit_record.set_face_normal(ray, outward_normal);
