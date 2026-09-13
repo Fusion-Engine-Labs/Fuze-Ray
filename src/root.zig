@@ -15,9 +15,30 @@ pub const Params = struct {
     fill: Rgba,
 };
 
-pub fn render(io: std.Io, buf: *Buffer, params: Params) !void {
-    var hittable_list = HittableList.init();
-    defer hittable_list.deinit(buf.allocator);
+const Scene = struct {
+    list: HittableList,
+    materials: std.ArrayList(*Material),
+
+    fn deinit(self: *Scene, allocator: std.mem.Allocator) void {
+        for (self.materials.items) |m| allocator.destroy(m);
+        self.materials.deinit(allocator);
+        self.list.deinit(allocator);
+    }
+};
+
+/// Allocates `material` on the heap so its address stays valid for the
+/// lifetime of the returned Scene, rather than pointing into this
+/// function's stack frame.
+fn addMaterial(scene: *Scene, allocator: std.mem.Allocator, material: Material) !*Material {
+    const m = try allocator.create(Material);
+    m.* = material;
+    try scene.materials.append(allocator, m);
+    return m;
+}
+
+fn scene1(allocator: std.mem.Allocator) !Scene {
+    var scene: Scene = .{ .list = HittableList.init(), .materials = .empty };
+    errdefer scene.deinit(allocator);
 
     const material_ground = Lambertion{
         .albedo = v.init(0.8, 0.8, 0.0),
@@ -39,54 +60,61 @@ pub fn render(io: std.Io, buf: *Buffer, params: Params) !void {
     const sphere_one = Sphere.init(
         v.init(0, -100.5, -1),
         100,
-        &.{ .lambertion = material_ground },
+        try addMaterial(&scene, allocator, .{ .lambertion = material_ground }),
     );
 
     const sphere_two = Sphere.init(
         v.init(0, 0, -1.2),
         0.5,
-        &.{ .lambertion = material_center },
+        try addMaterial(&scene, allocator, .{ .lambertion = material_center }),
     );
 
     const sphere_three = Sphere.init(
         v.init(-1, 0, -1),
         0.5,
-        &.{ .dialetric = material_left },
+        try addMaterial(&scene, allocator, .{ .dialetric = material_left }),
     );
 
     const sphere_four = Sphere.init(
         v.init(1, 0, -1),
         0.5,
-        &.{ .metal = material_right },
+        try addMaterial(&scene, allocator, .{ .metal = material_right }),
     );
 
     const sphere_five = Sphere.init(
         v.init(-1, 0, -1),
         0.4,
-        &.{ .dialetric = material_bubble },
+        try addMaterial(&scene, allocator, .{ .dialetric = material_bubble }),
     );
 
-    try hittable_list.add(
-        buf.allocator,
+    try scene.list.add(
+        allocator,
         .{ .sphere = sphere_one },
     );
-    try hittable_list.add(
-        buf.allocator,
+    try scene.list.add(
+        allocator,
         .{ .sphere = sphere_two },
     );
-    try hittable_list.add(
-        buf.allocator,
+    try scene.list.add(
+        allocator,
         .{ .sphere = sphere_three },
     );
-    try hittable_list.add(
-        buf.allocator,
+    try scene.list.add(
+        allocator,
         .{ .sphere = sphere_four },
     );
-    try hittable_list.add(
-        buf.allocator,
+    try scene.list.add(
+        allocator,
         .{ .sphere = sphere_five },
     );
 
+    return scene;
+}
+
+pub fn render(io: std.Io, buf: *Buffer, params: Params) !void {
+    var scene = try scene1(buf.allocator);
+    defer scene.deinit(buf.allocator);
+
     const camera = Camera.init(buf, io);
-    try camera.render(params, &hittable_list);
+    try camera.render(params, &scene.list);
 }

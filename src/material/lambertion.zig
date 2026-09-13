@@ -1,13 +1,11 @@
 const HitRecord = @import("../hittable/hit_record.zig");
 const v = @import("../vector.zig");
 const Ray = @import("../ray.zig");
-const std = @import("std");
+const Rng = @import("../rng.zig");
 
 const Lambertion = @This();
 
 albedo: v.Color,
-
-pub var rand_state = std.Random.DefaultPrng.init(70);
 
 pub fn scatter(
     self: *const Lambertion,
@@ -16,7 +14,7 @@ pub fn scatter(
     attenuation: *v.Color,
     scattered: *Ray,
 ) bool {
-    var scatter_direction = hit_record.normal + v.randomUnit(rand_state.random());
+    var scatter_direction = hit_record.normal + v.randomUnit(Rng.random());
     if (v.nearZero(scatter_direction)) {
         scatter_direction = hit_record.normal;
     }

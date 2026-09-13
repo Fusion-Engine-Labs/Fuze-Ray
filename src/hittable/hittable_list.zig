@@ -36,10 +36,10 @@ pub fn hit(
     var closest_so_far = ray_t.max;
 
     for (self.hittables.items) |obj| {
-        if (obj.hit(ray, ray_t, hit_record)) {
+        if (obj.hit(ray, .init(ray_t.min, closest_so_far), &temp_rec)) {
             hit_anything = true;
-            closest_so_far = hit_record.t;
-            temp_rec = hit_record.*;
+            closest_so_far = temp_rec.t;
+            hit_record.* = temp_rec;
         }
     }
 

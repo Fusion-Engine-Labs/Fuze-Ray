@@ -1,13 +1,12 @@
 const HitRecord = @import("../hittable/hit_record.zig");
 const v = @import("../vector.zig");
 const Ray = @import("../ray.zig");
+const Rng = @import("../rng.zig");
 const std = @import("std");
 
 const Metal = @This();
 
 refraction_index: f64,
-
-pub var rand_state = std.Random.DefaultPrng.init(70);
 
 pub fn scatter(
     self: *const Metal,
@@ -31,7 +30,7 @@ pub fn scatter(
 
     const cannot_refract = ri * sin_theta > 1.0;
     var direction: v.Vec3 = undefined;
-    if (cannot_refract or reflectance(cos_theta, ri) > rand_state.random().float(f64)) {
+    if (cannot_refract or reflectance(cos_theta, ri) > Rng.random().float(f64)) {
         direction = v.reflect(unit_direction, hit_record.normal);
     } else {
         direction = v.refract(

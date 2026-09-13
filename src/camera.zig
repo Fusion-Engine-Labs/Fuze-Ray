@@ -7,8 +7,7 @@ const Rgba = @import("utils.zig").Rgba;
 const Buffer = @import("buffer.zig");
 const v = @import("vector.zig");
 const Ray = @import("ray.zig");
-
-pub threadlocal var rand_state = std.Random.DefaultPrng.init(70);
+const Rng = @import("rng.zig");
 
 const Camera = @This();
 
@@ -46,7 +45,7 @@ pub fn init(buffer: *Buffer, io: std.Io) Camera {
     const lookat = v.init(0, 0, -1);
     const vup = v.init(0, 1, 0);
 
-    const vfov: f64 = 90.0;
+    const vfov: f64 = 20.0;
     const theta = std.math.degreesToRadians(vfov);
     const h = std.math.tan(theta / 2);
     const viewport_height: f64 = 2 * h * focus_dist;
@@ -71,7 +70,7 @@ pub fn init(buffer: *Buffer, io: std.Io) Camera {
     const defocus_disk_u = v.splat(defocus_radius) * u;
     const defocus_disk_v = v.splat(defocus_radius) * vv;
 
-    const samples_per_pixel: u32 = 10;
+    const samples_per_pixel: u32 = 100;
 
     return .{
         .io = io,
@@ -107,7 +106,7 @@ pub fn render(self: *const Camera, params: Params, world: *const HittableList) !
     defer group.cancel(self.io);
 
     for (0..self.buffer.height) |y| {
-        try group.concurrent(
+        group.async(
             self.io,
             renderRow,
             .{ self, fill, world, y },
@@ -143,18 +142,18 @@ fn get_ray(self: *const Camera, x: usize, y: usize) Ray {
     else
         defocus_disk_sample(self);
 
-    const ray_direction = pixel_sample - self.center;
+    const ray_direction = pixel_sample - ray_origin;
 
     return .init(ray_origin, ray_direction);
 }
 
 fn sample_square() v.Vec3 {
-    const r = rand_state.random();
+    const r = Rng.random();
     return v.init(r.float(f64) - 0.5, r.float(f64) - 0.5, 0);
 }
 
 fn defocus_disk_sample(camera: *const Camera) v.Point {
-    const p = v.randomUnitDisk(rand_state.random());
+    const p = v.randomUnitDisk(Rng.random());
     return camera.center + (v.splat(v.x(p)) * camera.defocus_disk_u) + (v.splat(v.y(p)) * camera.defocus_disk_v);
 }
 
