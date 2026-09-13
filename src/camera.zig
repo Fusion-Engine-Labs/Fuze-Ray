@@ -34,18 +34,29 @@ focus_dist: f64,
 defocus_disk_u: v.Vec3,
 defocus_disk_v: v.Vec3,
 
-pub fn init(buffer: *Buffer, io: std.Io) Camera {
+pub const Settings = struct {
+    vfov: f64 = 20.0,
+    lookfrom: v.Point = v.init(-2, 2, 1),
+    lookat: v.Point = v.init(0, 0, -1),
+    vup: v.Vec3 = v.init(0, 1, 0),
+    defocus_angle: f64 = 10.0,
+    focus_dist: f64 = 3.4,
+    samples_per_pixel: u32 = 100,
+    max_depth: u32 = 50,
+};
+
+pub fn init(buffer: *Buffer, io: std.Io, settings: Settings) Camera {
     const width: f64 = @floatFromInt(buffer.width);
     const height: f64 = @floatFromInt(buffer.height);
 
-    const defocus_angle: f64 = 10.0;
-    const focus_dist: f64 = 3.4;
+    const defocus_angle = settings.defocus_angle;
+    const focus_dist = settings.focus_dist;
 
-    const lookfrom = v.init(-2, 2, 1);
-    const lookat = v.init(0, 0, -1);
-    const vup = v.init(0, 1, 0);
+    const lookfrom = settings.lookfrom;
+    const lookat = settings.lookat;
+    const vup = settings.vup;
 
-    const vfov: f64 = 20.0;
+    const vfov = settings.vfov;
     const theta = std.math.degreesToRadians(vfov);
     const h = std.math.tan(theta / 2);
     const viewport_height: f64 = 2 * h * focus_dist;
@@ -70,7 +81,7 @@ pub fn init(buffer: *Buffer, io: std.Io) Camera {
     const defocus_disk_u = v.splat(defocus_radius) * u;
     const defocus_disk_v = v.splat(defocus_radius) * vv;
 
-    const samples_per_pixel: u32 = 100;
+    const samples_per_pixel = settings.samples_per_pixel;
 
     return .{
         .io = io,
@@ -87,7 +98,7 @@ pub fn init(buffer: *Buffer, io: std.Io) Camera {
         .vup = vup,
         .buffer = buffer,
         .center = center,
-        .max_depth = 50,
+        .max_depth = settings.max_depth,
         .pixel00_loc = pixel00_loc,
         .pixel_delta_u = pixel_delta_u,
         .pixel_delta_v = pixel_delta_v,
