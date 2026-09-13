@@ -13,6 +13,7 @@ pub threadlocal var rand_state = std.Random.DefaultPrng.init(70);
 const Camera = @This();
 
 io: std.Io,
+vfov: f64,
 width: f64,
 height: f64,
 center: v.Point,
@@ -21,34 +22,70 @@ pixel00_loc: v.Point,
 pixel_delta_u: v.Vec3,
 pixel_delta_v: v.Vec3,
 samples_per_pixel: u32,
+lookfrom: v.Point,
+lookat: v.Point,
+vup: v.Vec3,
 pixel_samples_scale: f64,
 buffer: *Buffer,
+vv: v.Vec3,
+u: v.Vec3,
+w: v.Vec3,
+defocus_angle: f64,
+focus_dist: f64,
+defocus_disk_u: v.Vec3,
+defocus_disk_v: v.Vec3,
 
 pub fn init(buffer: *Buffer, io: std.Io) Camera {
     const width: f64 = @floatFromInt(buffer.width);
     const height: f64 = @floatFromInt(buffer.height);
 
-    const focal_length: f64 = 1.0;
-    const viewport_height: f64 = 2.0;
-    const viewport_width = viewport_height * width / height;
-    const center = v.zero;
+    const defocus_angle: f64 = 10.0;
+    const focus_dist: f64 = 3.4;
 
-    const viewport_u: v.Vec3 = .{ viewport_width, 0, 0 };
-    const viewport_v: v.Vec3 = .{ 0, -viewport_height, 0 };
+    const lookfrom = v.init(-2, 2, 1);
+    const lookat = v.init(0, 0, -1);
+    const vup = v.init(0, 1, 0);
+
+    const vfov: f64 = 90.0;
+    const theta = std.math.degreesToRadians(vfov);
+    const h = std.math.tan(theta / 2);
+    const viewport_height: f64 = 2 * h * focus_dist;
+    const viewport_width = viewport_height * width / height;
+    const center = lookfrom;
+
+    const w = v.unit(lookfrom - lookat);
+    const u = v.unit(v.cross(vup, w));
+    const vv = v.cross(w, u);
+
+    const viewport_u: v.Vec3 = v.splat(viewport_width) * u;
+    const viewport_v: v.Vec3 = v.splat(viewport_height) * -vv;
 
     const pixel_delta_u = viewport_u / v.splat(width);
     const pixel_delta_v = viewport_v / v.splat(height);
 
     const viewport_upper_left =
-        center - v.init(0, 0, focal_length) - viewport_u / v.splat(2) - viewport_v / v.splat(2);
+        center - (v.splat(focus_dist) * w) - viewport_u / v.splat(2) - viewport_v / v.splat(2);
     const pixel00_loc = viewport_upper_left + v.splat(0.5) * (pixel_delta_u + pixel_delta_v);
+
+    const defocus_radius = focus_dist * std.math.tan(std.math.degreesToRadians(defocus_angle / 2));
+    const defocus_disk_u = v.splat(defocus_radius) * u;
+    const defocus_disk_v = v.splat(defocus_radius) * vv;
 
     const samples_per_pixel: u32 = 10;
 
     return .{
         .io = io,
+        .vfov = vfov,
         .width = width,
+        .defocus_angle = defocus_angle,
+        .focus_dist = focus_dist,
+        .u = u,
+        .vv = vv,
+        .w = w,
         .height = height,
+        .lookat = lookat,
+        .lookfrom = lookfrom,
+        .vup = vup,
         .buffer = buffer,
         .center = center,
         .max_depth = 50,
@@ -57,6 +94,8 @@ pub fn init(buffer: *Buffer, io: std.Io) Camera {
         .pixel_delta_v = pixel_delta_v,
         .pixel_samples_scale = 1.0 / @as(f64, @floatFromInt(samples_per_pixel)),
         .samples_per_pixel = samples_per_pixel,
+        .defocus_disk_u = defocus_disk_u,
+        .defocus_disk_v = defocus_disk_v,
     };
 }
 
@@ -99,14 +138,24 @@ fn get_ray(self: *const Camera, x: usize, y: usize) Ray {
     const vvec = v.splat(yi + v.y(offset));
 
     const pixel_sample = self.pixel00_loc + (uvec * self.pixel_delta_u) + (vvec * self.pixel_delta_v);
+    const ray_origin = if (self.defocus_angle <= 0)
+        self.center
+    else
+        defocus_disk_sample(self);
+
     const ray_direction = pixel_sample - self.center;
 
-    return .init(self.center, ray_direction);
+    return .init(ray_origin, ray_direction);
 }
 
 fn sample_square() v.Vec3 {
     const r = rand_state.random();
     return v.init(r.float(f64) - 0.5, r.float(f64) - 0.5, 0);
+}
+
+fn defocus_disk_sample(camera: *const Camera) v.Point {
+    const p = v.randomUnitDisk(rand_state.random());
+    return camera.center + (v.splat(v.x(p)) * camera.defocus_disk_u) + (v.splat(v.y(p)) * camera.defocus_disk_v);
 }
 
 fn ray_color(ray: *const Ray, world: *const HittableList, fill: v.Vec3, depth: u32) v.Vec3 {
