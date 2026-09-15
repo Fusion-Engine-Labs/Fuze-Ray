@@ -39,7 +39,13 @@ pub fn main(init: std.process.Init) !void {
     try gl.syncFontAtlas(&font_atlas);
     state.setFontAtlas(&font_atlas);
 
-    var renderer = try Renderer.init(gpa, io, render_width, render_height, ui.initialFill());
+    var renderer = try Renderer.init(
+        gpa,
+        io,
+        render_width,
+        render_height,
+        ui.initialEntity(),
+    );
     defer renderer.deinit();
 
     var texture = try gl.createTextureRgba(
@@ -90,7 +96,7 @@ pub fn main(init: std.process.Init) !void {
         });
 
         try panel.update(&state);
-        renderer.fill = panel.fill();
+        renderer.entity = panel.entity();
 
         if (panel.startClicked(&state)) {
             try renderer.start();

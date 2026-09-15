@@ -28,9 +28,16 @@ fn toRgba(color: gui.Color) ray.Rgba {
     return .{ .r = color.r, .g = color.g, .b = color.b, .a = color.a };
 }
 
-/// Seed for `Renderer.fill`, so the starting colour is stated exactly once.
-pub fn initialFill() ray.Rgba {
-    return toRgba(initial_fill);
+const initial_position: [3]f64 = .{ 0, 0, -1 };
+const initial_radius: f64 = 0.5;
+
+/// Seed for `Renderer.entity`, so the starting scene is stated exactly once.
+pub fn initialEntity() ray.Entity {
+    return .{
+        .fill = toRgba(initial_fill),
+        .position = initial_position,
+        .radius = initial_radius,
+    };
 }
 
 pub const Stats = struct {
@@ -63,10 +70,20 @@ const Fit = struct {
     top: f32 = 0,
 };
 
+const position_axis_labels = [3][]const u8{ "X", "Y", "Z" };
+
+const position_field_options: gui.NumericOptions = .{ .step = 0.1, .width = .fill };
+const radius_slider_options: gui.SliderOptions = .{ .min = 0.05, .max = 2.0, .step = 0.05 };
+
 pub const Panel = struct {
     nodes: Nodes,
     picker: gui.ColorPicker,
     color: gui.Color,
+    position_fields: [3]gui.NumericField,
+    position: [3]f32,
+    radius_slider: gui.Slider,
+    radius_value_label: gui.NodeId,
+    radius: f32,
     fit: Fit = .{},
 
     pub fn init(
@@ -78,20 +95,69 @@ pub const Panel = struct {
         const picker = try gui.ColorPicker.init(allocator, state, nodes.side_panel, initial_fill, .{
             .wheel_diameter = wheel_diameter,
         });
-        return .{ .nodes = nodes, .picker = picker, .color = initial_fill };
+
+        _ = try divider(state, nodes.side_panel);
+        _ = try heading(state, nodes.side_panel, "Position & Radius");
+
+        var position: [3]f32 = undefined;
+        var position_fields: [3]gui.NumericField = undefined;
+        var fields_initialized: usize = 0;
+        errdefer for (position_fields[0..fields_initialized]) |*field| field.deinit(state);
+        for (&position_fields, 0..) |*field, i| {
+            position[i] = @floatCast(initial_position[i]);
+            const row = try labeledRow(state, nodes.side_panel, position_axis_labels[i]);
+            field.* = try gui.NumericField.initF32(allocator, state, row, position[i], position_field_options);
+            fields_initialized += 1;
+        }
+
+        const radius: f32 = @floatCast(initial_radius);
+        const radius_row = try labeledRow(state, nodes.side_panel, "R");
+        var radius_slider = try gui.Slider.init(state, radius_row, radius_slider_options);
+        errdefer radius_slider.deinit(state);
+        const radius_value_label = try gui.widgets.label(state, radius_row, "", .{
+            .width = .{ .px = 40 },
+            .height = .fill,
+            .padding = gui.Edges{ .top = 6 },
+            .foreground = muted_text_color,
+            .font_size = 14,
+            .text_align = .end,
+        });
+
+        return .{
+            .nodes = nodes,
+            .picker = picker,
+            .color = initial_fill,
+            .position_fields = position_fields,
+            .position = position,
+            .radius_slider = radius_slider,
+            .radius_value_label = radius_value_label,
+            .radius = radius,
+        };
     }
 
     pub fn deinit(self: *Panel, state: *gui.Ui) void {
         self.picker.deinit(state);
+        for (&self.position_fields) |*field| field.deinit(state);
+        self.radius_slider.deinit(state);
         self.* = undefined;
     }
 
-    pub fn fill(self: *const Panel) ray.Rgba {
-        return toRgba(self.color);
+    pub fn entity(self: *const Panel) ray.Entity {
+        return .{
+            .fill = toRgba(self.color),
+            .position = .{ self.position[0], self.position[1], self.position[2] },
+            .radius = self.radius,
+        };
     }
 
     pub fn update(self: *Panel, state: *gui.Ui) !void {
         _ = try self.picker.update(state, &self.color);
+        for (&self.position_fields, 0..) |*field, i| {
+            _ = try field.updateF32(state, &self.position[i], position_field_options);
+        }
+        _ = try self.radius_slider.update(state, &self.radius, radius_slider_options);
+        var radius_buf: [16]u8 = undefined;
+        try state.setText(self.radius_value_label, try std.fmt.bufPrint(&radius_buf, "{d:.2}", .{self.radius}));
     }
 
     pub fn startClicked(self: *const Panel, state: *gui.Ui) bool {
@@ -158,8 +224,6 @@ fn millis(ns: i96) f64 {
     return @as(f64, @floatFromInt(ns)) / @as(f64, std.time.ns_per_ms);
 }
 
-/// The side panel has exactly two text roles; naming them keeps a restyle a
-/// one-line edit instead of four near-identical blocks kept in agreement.
 fn heading(state: *gui.Ui, parent: gui.NodeId, text: []const u8) !gui.NodeId {
     return gui.widgets.label(state, parent, text, .{
         .width = .fill,
@@ -174,6 +238,31 @@ fn stat(state: *gui.Ui, parent: gui.NodeId, text: []const u8) !gui.NodeId {
         .foreground = muted_text_color,
         .font_size = 14,
     });
+}
+
+fn divider(state: *gui.Ui, parent: gui.NodeId) !gui.NodeId {
+    return gui.widgets.panel(state, parent, .{
+        .width = .fill,
+        .height = .{ .px = 1 },
+        .background = border_color,
+    });
+}
+
+fn labeledRow(state: *gui.Ui, parent: gui.NodeId, label_text: []const u8) !gui.NodeId {
+    const row = try gui.widgets.panel(state, parent, .{
+        .width = .fill,
+        .height = .{ .px = 28 },
+        .direction = .row,
+        .gap = 8,
+    });
+    _ = try gui.widgets.label(state, row, label_text, .{
+        .width = .{ .px = 16 },
+        .height = .fill,
+        .padding = gui.Edges{ .top = 6 },
+        .foreground = muted_text_color,
+        .font_size = 14,
+    });
+    return row;
 }
 
 fn build(state: *gui.Ui, texture: gui.TextureHandle) !Nodes {

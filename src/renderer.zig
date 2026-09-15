@@ -7,7 +7,7 @@ const Renderer = @This();
 
 io: std.Io,
 buffer: Buffer,
-fill: ray.Rgba,
+entity: ray.Entity,
 clear_color: ray.Rgba = .{ .r = 18, .g = 20, .b = 26, .a = 255 },
 thread: ?std.Thread = null,
 running: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
@@ -18,12 +18,16 @@ pub fn init(
     io: std.Io,
     width: u32,
     height: u32,
-    fill: ray.Rgba,
+    entity: ray.Entity,
 ) !Renderer {
     var buffer = try Buffer.init(allocator, width, height);
     errdefer buffer.deinit();
 
-    var self: Renderer = .{ .io = io, .buffer = buffer, .fill = fill };
+    var self: Renderer = .{
+        .io = io,
+        .buffer = buffer,
+        .entity = entity,
+    };
     self.buffer.clear(self.clear_color);
     return self;
 }
@@ -60,7 +64,7 @@ pub fn wait(self: *Renderer) void {
 
 fn work(self: *Renderer) void {
     const start_ns = nowNs(self.io);
-    ray.render(&self.buffer, .{ .fill = self.fill });
+    ray.render(&self.buffer, self.entity);
     self.elapsed_ns = nowNs(self.io) - start_ns;
     self.running.store(false, .release);
 }
