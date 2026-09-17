@@ -1,50 +1,59 @@
 const std = @import("std");
 const ray = @import("ray");
 
-const Buffer = ray.Buffer;
-
 const Renderer = @This();
 
+allocator: std.mem.Allocator,
 io: std.Io,
-buffer: Buffer,
-fill: ray.Rgba,
+buffer: ray.Buffer,
 clear_color: ray.Rgba = .{ .r = 18, .g = 20, .b = 26, .a = 255 },
 thread: ?std.Thread = null,
-running: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+running: std.atomic.Value(bool) = .init(false),
+cancel: std.atomic.Value(bool) = .init(false),
 elapsed_ns: i96 = 0,
 
-pub fn init(
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    width: u32,
-    height: u32,
-    fill: ray.Rgba,
-) !Renderer {
-    var buffer = try Buffer.init(allocator, width, height);
+pub fn init(allocator: std.mem.Allocator, io: std.Io, scene: *const ray.Scene) !Renderer {
+    var buffer = try ray.Buffer.init(allocator, scene.width, scene.height);
     errdefer buffer.deinit();
 
-    var self: Renderer = .{ .io = io, .buffer = buffer, .fill = fill };
+    var self: Renderer = .{ .allocator = allocator, .io = io, .buffer = buffer };
     self.buffer.clear(self.clear_color);
     return self;
 }
 
 pub fn deinit(self: *Renderer) void {
+    self.stop();
     self.wait();
     self.buffer.deinit();
     self.* = undefined;
 }
 
-pub fn start(self: *Renderer) !void {
+pub fn start(self: *Renderer, scene: *const ray.Scene) !void {
     if (self.isRendering()) {
         return;
     }
     self.wait();
+
+    var snapshot = try scene.clone(self.allocator);
+    errdefer snapshot.deinit(self.allocator);
+
+    try self.buffer.resize(snapshot.width, snapshot.height);
     self.buffer.clear(self.clear_color);
+
+    self.cancel.store(false, .release);
     self.running.store(true, .release);
-    self.thread = std.Thread.spawn(.{}, work, .{self}) catch |err| {
+    self.thread = std.Thread.spawn(.{}, work, .{ self, snapshot }) catch |err| {
         self.running.store(false, .release);
         return err;
     };
+}
+
+pub fn stop(self: *Renderer) void {
+    self.cancel.store(true, .release);
+}
+
+pub fn wasCanceled(self: *const Renderer) bool {
+    return self.cancel.load(.acquire);
 }
 
 pub fn isRendering(self: *const Renderer) bool {
@@ -58,9 +67,12 @@ pub fn wait(self: *Renderer) void {
     }
 }
 
-fn work(self: *Renderer) void {
+fn work(self: *Renderer, scene: ray.Scene) void {
+    var owned = scene;
+    defer owned.deinit(self.allocator);
+
     const start_ns = nowNs(self.io);
-    ray.render(self.io, &self.buffer, .{ .fill = self.fill, .scene = .two }) catch |err| {
+    ray.render(self.io, &self.buffer, &owned, &self.cancel) catch |err| {
         std.debug.print("ray: render error: {}\n", .{err});
     };
     self.elapsed_ns = nowNs(self.io) - start_ns;

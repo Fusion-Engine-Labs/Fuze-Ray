@@ -3,12 +3,12 @@ const v = @import("../vector.zig");
 const Ray = @import("../ray.zig");
 const Rng = @import("../rng.zig");
 
-const Lambertion = @This();
+const Lambertian = @This();
 
 albedo: v.Color,
 
 pub fn scatter(
-    self: *const Lambertion,
+    self: *const Lambertian,
     _: *const Ray,
     hit_record: *const HitRecord,
     attenuation: *v.Color,

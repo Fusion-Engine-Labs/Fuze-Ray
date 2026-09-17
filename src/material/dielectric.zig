@@ -4,12 +4,12 @@ const Ray = @import("../ray.zig");
 const Rng = @import("../rng.zig");
 const std = @import("std");
 
-const Metal = @This();
+const Dielectric = @This();
 
 refraction_index: f64,
 
 pub fn scatter(
-    self: *const Metal,
+    self: *const Dielectric,
     ray: *const Ray,
     hit_record: *const HitRecord,
     attenuation: *v.Color,

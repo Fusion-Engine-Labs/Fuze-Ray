@@ -2,8 +2,6 @@ const std = @import("std");
 
 const HittableList = @import("hittable/hittable_list.zig");
 const HitRecord = @import("hittable/hit_record.zig");
-const Params = @import("root.zig").Params;
-const Rgba = @import("utils.zig").Rgba;
 const Buffer = @import("buffer.zig");
 const v = @import("vector.zig");
 const Ray = @import("ray.zig");
@@ -109,9 +107,12 @@ pub fn init(buffer: *Buffer, io: std.Io, settings: Settings) Camera {
     };
 }
 
-pub fn render(self: *const Camera, params: Params, world: *const HittableList) !void {
+pub fn render(
+    self: *const Camera,
+    world: *const HittableList,
+    cancel: ?*const std.atomic.Value(bool),
+) !void {
     @setFloatMode(.optimized);
-    const fill = params.fill.toColor();
 
     var group: std.Io.Group = .init;
     defer group.cancel(self.io);
@@ -120,18 +121,37 @@ pub fn render(self: *const Camera, params: Params, world: *const HittableList) !
         group.async(
             self.io,
             renderRow,
-            .{ self, fill, world, y },
+            .{ self, world, y, cancel },
         );
     }
     try group.await(self.io);
 }
 
-fn renderRow(self: *const Camera, fill: v.Vec3, world: *const HittableList, y: usize) !void {
+fn canceled(cancel: ?*const std.atomic.Value(bool)) bool {
+    const flag = cancel orelse return false;
+    return flag.load(.acquire);
+}
+
+fn renderRow(
+    self: *const Camera,
+    world: *const HittableList,
+    y: usize,
+    cancel: ?*const std.atomic.Value(bool),
+) !void {
+    if (canceled(cancel)) {
+        return;
+    }
+
+    Rng.ensureInit();
     for (self.buffer.row(@intCast(y)), 0..) |*pixel, x| {
+        if (canceled(cancel)) {
+            return;
+        }
+
         var pixel_color: v.Vec3 = v.zero;
         for (0..self.samples_per_pixel) |_| {
             const ray = self.get_ray(x, y);
-            pixel_color += ray_color(&ray, world, fill, self.max_depth);
+            pixel_color += ray_color(&ray, world, self.max_depth);
         }
 
         pixel_color *= v.splat(self.pixel_samples_scale);
@@ -168,7 +188,9 @@ fn defocus_disk_sample(camera: *const Camera) v.Point {
     return camera.center + (v.splat(v.x(p)) * camera.defocus_disk_u) + (v.splat(v.y(p)) * camera.defocus_disk_v);
 }
 
-fn ray_color(ray: *const Ray, world: *const HittableList, fill: v.Vec3, depth: u32) v.Vec3 {
+const sky_color: v.Color = v.init(0.5, 0.7, 1.0);
+
+fn ray_color(ray: *const Ray, world: *const HittableList, depth: u32) v.Vec3 {
     if (depth <= 0) {
         return v.init(0, 0, 0);
     }
@@ -182,7 +204,6 @@ fn ray_color(ray: *const Ray, world: *const HittableList, fill: v.Vec3, depth: u
             return attenuation * ray_color(
                 &scattered,
                 world,
-                fill,
                 depth - 1,
             );
         }
@@ -191,5 +212,5 @@ fn ray_color(ray: *const Ray, world: *const HittableList, fill: v.Vec3, depth: u
 
     const unit_direction = v.unit(ray.direction);
     const a: f64 = 0.5 * (v.y(unit_direction) + 1.0);
-    return v.splat(1.0 - a) * v.one + v.splat(a) * fill;
+    return v.splat(1.0 - a) * v.one + v.splat(a) * sky_color;
 }

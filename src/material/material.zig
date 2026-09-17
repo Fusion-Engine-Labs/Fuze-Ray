@@ -1,14 +1,14 @@
 const HitRecord = @import("../hittable/hit_record.zig");
-const Lambertion = @import("lambertion.zig");
-const Dialectric = @import("dialectric.zig");
+const Lambertian = @import("lambertian.zig");
+const Dielectric = @import("dielectric.zig");
 const Metal = @import("metal.zig");
 const v = @import("../vector.zig");
 const Ray = @import("../ray.zig");
 
 pub const Material = union(enum) {
     metal: Metal,
-    lambertion: Lambertion,
-    dialetric: Dialectric,
+    lambertian: Lambertian,
+    dielectric: Dielectric,
 
     pub fn scatter(
         self: *const Material,
@@ -18,19 +18,7 @@ pub const Material = union(enum) {
         scattered: *Ray,
     ) bool {
         return switch (self.*) {
-            .metal => |m| m.scatter(
-                ray,
-                hit_record,
-                attenuation,
-                scattered,
-            ),
-            .lambertion => |l| l.scatter(
-                ray,
-                hit_record,
-                attenuation,
-                scattered,
-            ),
-            .dialetric => |d| d.scatter(
+            inline else => |*material| material.scatter(
                 ray,
                 hit_record,
                 attenuation,

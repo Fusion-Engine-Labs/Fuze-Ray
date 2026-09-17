@@ -1,204 +1,67 @@
 const std = @import("std");
 
-const HittableList = @import("hittable/hittable_list.zig");
-const Material = @import("material/material.zig").Material;
-const Dialectric = @import("material/dialectric.zig");
-const Lambertion = @import("material/lambertion.zig");
-const Sphere = @import("hittable/sphere.zig");
-const Metal = @import("material/metal.zig");
-const Rng = @import("rng.zig");
-pub const Rgba = @import("utils.zig").Rgba;
+const scene_mod = @import("scene.zig");
+
 pub const Buffer = @import("buffer.zig");
-const Camera = @import("camera.zig");
-const v = @import("vector.zig");
+pub const Camera = @import("camera.zig");
+pub const Rgba = @import("utils.zig").Rgba;
+pub const vector = @import("vector.zig");
 
-pub const SceneChoice = enum { one, two };
+pub const Scene = scene_mod.Scene;
+pub const SphereDesc = scene_mod.SphereDesc;
+pub const MaterialDesc = scene_mod.MaterialDesc;
+pub const MaterialKind = scene_mod.MaterialKind;
+pub const material_kind_names = scene_mod.material_kind_names;
 
-pub const Params = struct {
-    fill: Rgba,
-    scene: SceneChoice = .one,
-};
+/// Traces `scene` into `buffer`, which must already be sized to the scene's
+/// resolution. The caller owns `scene` for the duration of the call. Setting
+/// `cancel` while the trace runs stops it early.
+pub fn render(
+    io: std.Io,
+    buffer: *Buffer,
+    scene: *const Scene,
+    cancel: ?*const std.atomic.Value(bool),
+) !void {
+    var world = try scene.build(buffer.allocator);
+    defer world.deinit(buffer.allocator);
 
-const Scene = struct {
-    list: HittableList,
-    materials: std.ArrayList(*Material),
+    const camera = Camera.init(buffer, io, scene.camera);
+    try camera.render(&world.list, cancel);
+}
 
-    fn deinit(self: *Scene, allocator: std.mem.Allocator) void {
-        for (self.materials.items) |m| allocator.destroy(m);
-        self.materials.deinit(allocator);
-        self.list.deinit(allocator);
+test {
+    std.testing.refAllDecls(@This());
+    _ = scene_mod;
+}
+
+test "rendering the default scene fills the buffer" {
+    const allocator = std.testing.allocator;
+
+    var threaded: std.Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
+
+    var scene = try Scene.initDefault(allocator);
+    defer scene.deinit(allocator);
+
+    // Small and cheap: this is checking that the pipeline runs end to end, not
+    // that it converges.
+    scene.width = 24;
+    scene.height = 16;
+    scene.camera.samples_per_pixel = 2;
+    scene.camera.max_depth = 4;
+
+    var buffer = try Buffer.init(allocator, scene.width, scene.height);
+    defer buffer.deinit();
+    buffer.clear(.{ .r = 0, .g = 0, .b = 0, .a = 0 });
+
+    try render(threaded.io(), &buffer, &scene, null);
+
+    // The sky gradient alone guarantees a lit top row, and every pixel the
+    // tracer touches is written opaque.
+    var lit: usize = 0;
+    for (buffer.pixels) |pixel| {
+        try std.testing.expectEqual(@as(u8, 255), pixel.a);
+        if (pixel.r != 0 or pixel.g != 0 or pixel.b != 0) lit += 1;
     }
-};
-
-fn addMaterial(scene: *Scene, allocator: std.mem.Allocator, material: Material) !*Material {
-    const m = try allocator.create(Material);
-    m.* = material;
-    try scene.materials.append(allocator, m);
-    return m;
-}
-
-fn scene1(allocator: std.mem.Allocator) !Scene {
-    var scene: Scene = .{ .list = HittableList.init(), .materials = .empty };
-    errdefer scene.deinit(allocator);
-
-    const material_ground = Lambertion{
-        .albedo = v.init(0.8, 0.8, 0.0),
-    };
-    const material_center = Lambertion{
-        .albedo = v.init(0.1, 0.2, 0.5),
-    };
-    const material_left = Dialectric{
-        .refraction_index = 1.5,
-    };
-    const material_bubble = Dialectric{
-        .refraction_index = 1.0 / 1.5,
-    };
-    const material_right = Metal{
-        .albedo = v.init(0.8, 0.6, 0.2),
-        .fuzz = 1.0,
-    };
-
-    const sphere_one = Sphere.init(
-        v.init(0, -100.5, -1),
-        100,
-        try addMaterial(&scene, allocator, .{ .lambertion = material_ground }),
-    );
-
-    const sphere_two = Sphere.init(
-        v.init(0, 0, -1.2),
-        0.5,
-        try addMaterial(&scene, allocator, .{ .lambertion = material_center }),
-    );
-
-    const sphere_three = Sphere.init(
-        v.init(-1, 0, -1),
-        0.5,
-        try addMaterial(&scene, allocator, .{ .dialetric = material_left }),
-    );
-
-    const sphere_four = Sphere.init(
-        v.init(1, 0, -1),
-        0.5,
-        try addMaterial(&scene, allocator, .{ .metal = material_right }),
-    );
-
-    const sphere_five = Sphere.init(
-        v.init(-1, 0, -1),
-        0.4,
-        try addMaterial(&scene, allocator, .{ .dialetric = material_bubble }),
-    );
-
-    try scene.list.add(
-        allocator,
-        .{ .sphere = sphere_one },
-    );
-    try scene.list.add(
-        allocator,
-        .{ .sphere = sphere_two },
-    );
-    try scene.list.add(
-        allocator,
-        .{ .sphere = sphere_three },
-    );
-    try scene.list.add(
-        allocator,
-        .{ .sphere = sphere_four },
-    );
-    try scene.list.add(
-        allocator,
-        .{ .sphere = sphere_five },
-    );
-
-    return scene;
-}
-
-fn scene2(allocator: std.mem.Allocator) !Scene {
-    var scene: Scene = .{ .list = HittableList.init(), .materials = .empty };
-    errdefer scene.deinit(allocator);
-
-    const r = Rng.random();
-
-    const ground_material = Lambertion{ .albedo = v.init(0.5, 0.5, 0.5) };
-    try scene.list.add(allocator, .{ .sphere = Sphere.init(
-        v.init(0, -1000, 0),
-        1000,
-        try addMaterial(&scene, allocator, .{ .lambertion = ground_material }),
-    ) });
-
-    var a: i32 = -11;
-    while (a < 11) : (a += 1) {
-        var b: i32 = -11;
-        while (b < 11) : (b += 1) {
-            const choose_mat = r.float(f64);
-            const center = v.init(
-                @as(f64, @floatFromInt(a)) + 0.9 * r.float(f64),
-                0.2,
-                @as(f64, @floatFromInt(b)) + 0.9 * r.float(f64),
-            );
-
-            if (v.magnitude(center - v.init(4, 0.2, 0)) > 0.9) {
-                const material: *const Material = blk: {
-                    if (choose_mat < 0.8) {
-                        const albedo = v.random(r) * v.random(r);
-                        break :blk try addMaterial(&scene, allocator, .{ .lambertion = .{ .albedo = albedo } });
-                    } else if (choose_mat < 0.95) {
-                        const albedo = v.randomRange(r, 0.5, 1);
-                        const fuzz = 0.5 * r.float(f64);
-                        break :blk try addMaterial(&scene, allocator, .{ .metal = .{ .albedo = albedo, .fuzz = fuzz } });
-                    } else {
-                        break :blk try addMaterial(&scene, allocator, .{ .dialetric = .{ .refraction_index = 1.5 } });
-                    }
-                };
-
-                try scene.list.add(allocator, .{ .sphere = Sphere.init(center, 0.2, material) });
-            }
-        }
-    }
-
-    try scene.list.add(allocator, .{ .sphere = Sphere.init(
-        v.init(0, 1, 0),
-        1.0,
-        try addMaterial(&scene, allocator, .{ .dialetric = .{ .refraction_index = 1.5 } }),
-    ) });
-
-    try scene.list.add(allocator, .{ .sphere = Sphere.init(
-        v.init(-4, 1, 0),
-        1.0,
-        try addMaterial(&scene, allocator, .{ .lambertion = .{ .albedo = v.init(0.4, 0.2, 0.1) } }),
-    ) });
-
-    try scene.list.add(allocator, .{ .sphere = Sphere.init(
-        v.init(4, 1, 0),
-        1.0,
-        try addMaterial(&scene, allocator, .{ .metal = .{ .albedo = v.init(0.7, 0.6, 0.5), .fuzz = 0.0 } }),
-    ) });
-
-    return scene;
-}
-
-const scene2_camera_settings: Camera.Settings = .{
-    .vfov = 20,
-    .lookfrom = v.init(13, 2, 3),
-    .lookat = v.init(0, 0, 0),
-    .vup = v.init(0, 1, 0),
-    .defocus_angle = 0.6,
-    .focus_dist = 10.0,
-    .samples_per_pixel = 500,
-    .max_depth = 50,
-};
-
-pub fn render(io: std.Io, buf: *Buffer, params: Params) !void {
-    var scene = switch (params.scene) {
-        .one => try scene1(buf.allocator),
-        .two => try scene2(buf.allocator),
-    };
-    defer scene.deinit(buf.allocator);
-
-    const camera_settings: Camera.Settings = switch (params.scene) {
-        .one => .{},
-        .two => scene2_camera_settings,
-    };
-
-    const camera = Camera.init(buf, io, camera_settings);
-    try camera.render(params, &scene.list);
+    try std.testing.expect(lit > buffer.pixels.len / 2);
 }

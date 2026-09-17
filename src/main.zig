@@ -1,17 +1,17 @@
 const Renderer = @import("renderer.zig");
 const gui_glfw = @import("zGUI_glfw");
-const ui = @import("ui.zig");
+const ui = @import("ui/ui.zig");
 const gui = @import("zGUI");
+const ray = @import("ray");
 const std = @import("std");
 
-const render_width = 1920;
-const render_height = 1080;
+/// The window opens showing the default scene at two thirds of its resolution,
+/// which the viewport then keeps fitting as the user resizes either one.
+const initial_viewport_scale = 2.0 / 3.0;
 
-const viewport_width = render_width * 2 / 3;
-const viewport_height = render_height * 2 / 3;
-
-const window_width = viewport_width + ui.chrome_width;
-const window_height = viewport_height + ui.chrome_height;
+/// The window never opens shorter than this, so the inspector starts with room
+/// to show its sections rather than immediately needing to be scrolled.
+const min_window_height: f32 = 820;
 
 const fps_window_ns: i96 = std.time.ns_per_s / 4;
 
@@ -19,7 +19,11 @@ pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     const io = init.io;
 
-    var platform = try gui_glfw.GlfwPlatform.init(gpa, window_width, window_height, "ray");
+    var scene = try ray.Scene.initDefault(gpa);
+    defer scene.deinit(gpa);
+
+    const window_size = initialWindowSize(&scene);
+    var platform = try gui_glfw.GlfwPlatform.init(gpa, window_size.width, window_size.height, "ray");
     defer platform.deinit();
     platform.makeContextCurrent();
 
@@ -39,7 +43,7 @@ pub fn main(init: std.process.Init) !void {
     try gl.syncFontAtlas(&font_atlas);
     state.setFontAtlas(&font_atlas);
 
-    var renderer = try Renderer.init(gpa, io, render_width, render_height, ui.initialFill());
+    var renderer = try Renderer.init(gpa, io, &scene);
     defer renderer.deinit();
 
     var texture = try gl.createTextureRgba(
@@ -49,13 +53,14 @@ pub fn main(init: std.process.Init) !void {
     );
     defer gl.destroyTexture(&texture);
 
-    var panel = try ui.Panel.init(gpa, &state, texture);
+    var panel = try ui.Panel.init(gpa, &state, texture, &scene);
     defer panel.deinit(&state);
 
     var last_cursor: ?gui.CursorKind = null;
     var last_frame_ns = nowNs(io);
     var last_render_ns: ?i96 = null;
     var render_pending = false;
+    var scene_edited = false;
     var fps: ?f32 = null;
     var fps_window_start_ns = last_frame_ns;
     var fps_window_frames: u32 = 0;
@@ -89,12 +94,20 @@ pub fn main(init: std.process.Init) !void {
             .clipboard = platform.clipboard(),
         });
 
-        try panel.update(&state);
-        renderer.fill = panel.fill();
+        const frame = try panel.update(&state, &scene);
+        scene_edited = scene_edited or frame.scene_edited;
 
-        if (panel.startClicked(&state)) {
-            try renderer.start();
-            render_pending = true;
+        // While a render is in flight it owns the pixel buffer, so the action
+        // stops it rather than resizing the image out from under it; the next
+        // press starts a fresh one.
+        if (frame.render_toggled) {
+            if (renderer.isRendering()) {
+                renderer.stop();
+            } else {
+                try renderer.start(&scene);
+                scene_edited = false;
+                render_pending = true;
+            }
         }
 
         try panel.fitViewport(&state, renderer.buffer.width, renderer.buffer.height);
@@ -118,6 +131,9 @@ pub fn main(init: std.process.Init) !void {
             .last_render_ns = last_render_ns,
             .width = renderer.buffer.width,
             .height = renderer.buffer.height,
+            .rendering = renderer.isRendering(),
+            .canceled = renderer.wasCanceled(),
+            .edited = scene_edited,
         });
 
         const cursor = state.requestedCursor();
@@ -139,6 +155,20 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
+const WindowSize = struct { width: u32, height: u32 };
+
+fn initialWindowSize(scene: *const ray.Scene) WindowSize {
+    const width: f32 = @floatFromInt(scene.width);
+    const height: f32 = @floatFromInt(scene.height);
+    return .{
+        .width = @intFromFloat(@round(width * initial_viewport_scale) + @as(f32, ui.chrome_width)),
+        .height = @intFromFloat(@max(
+            min_window_height,
+            @round(height * initial_viewport_scale) + @as(f32, ui.chrome_height),
+        )),
+    };
+}
+
 fn nowNs(io: std.Io) i96 {
     return std.Io.Clock.awake.now(io).toNanoseconds();
 }
@@ -151,4 +181,8 @@ fn framebufferScale(window_size: gui.Vec2, framebuffer_size: gui.Vec2) f32 {
     const x = framebuffer_size.x / @max(1, window_size.x);
     const y = framebuffer_size.y / @max(1, window_size.y);
     return @max(0.25, @max(x, y));
+}
+
+test {
+    _ = ui;
 }
