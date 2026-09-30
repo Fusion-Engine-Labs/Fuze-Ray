@@ -1,5 +1,6 @@
 const std = @import("std");
-const HittableList = @import("hittable/hittable_list.zig");
+pub const HittableList = @import("hittable/hittable_list.zig");
+pub const Sphere = @import("hittable/sphere.zig");
 const HitRecord = @import("hittable/hit_record.zig");
 
 pub const Rgba = @import("utils.zig").Rgba;
@@ -7,23 +8,7 @@ pub const Buffer = @import("buffer.zig");
 const v = @import("vector.zig");
 const Ray = @import("ray.zig");
 
-pub const Entity = struct {
-    fill: Rgba,
-    position: [3]f64,
-    radius: f64,
-};
-
-pub fn render(buf: *Buffer, entity: Entity) !void {
-    var hittables = HittableList.init();
-    defer hittables.deinit(buf.allocator);
-
-    try hittables.add(buf.allocator, .{
-        .sphere = .{
-            .center = v.init(entity.position[0], entity.position[1], entity.position[2]),
-            .radius = entity.radius,
-        },
-    });
-
+pub fn render(buf: *Buffer, hittables: *const HittableList) !void {
     const width: f64 = @floatFromInt(buf.width);
     const height: f64 = @floatFromInt(buf.height);
 
@@ -48,16 +33,15 @@ pub fn render(buf: *Buffer, entity: Entity) !void {
             const ray_direction = pixel_center - camera_center;
 
             const ray = Ray.init(camera_center, ray_direction);
-            // const c = v.init(entity.position[0], entity.position[1], entity.position[2]);
             var hit_record: HitRecord = undefined;
             if (hittables.hit(&ray, .init(0, std.math.floatMax(f64)), &hit_record)) {
-                pixel.* = .fromColor(v.splat(0.5) * (hit_record.normal + v.one));
+                pixel.* = .fromColor(v.splat(0.5 * (hit_record.normal[1] + 1.0)) * hit_record.color);
                 continue;
             }
 
             const unit_direction = v.unit(ray.direction);
             const a: f64 = 0.5 * (v.y(unit_direction) + 1.0);
-            const color = v.splat(1.0 - a) * v.one + v.splat(a) * entity.fill.toColor();
+            const color = v.splat(1.0 - a) * v.one + v.splat(a) * v.init(0.5, 0.7, 1.0);
             pixel.* = .fromColor(color);
         }
     }

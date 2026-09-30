@@ -7,7 +7,7 @@ const Renderer = @This();
 
 io: std.Io,
 buffer: Buffer,
-entity: ray.Entity,
+world: ray.HittableList = .init(),
 clear_color: ray.Rgba = .{ .r = 18, .g = 20, .b = 26, .a = 255 },
 thread: ?std.Thread = null,
 running: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
@@ -18,15 +18,13 @@ pub fn init(
     io: std.Io,
     width: u32,
     height: u32,
-    entity: ray.Entity,
-) !Renderer {
+    ) !Renderer {
     var buffer = try Buffer.init(allocator, width, height);
     errdefer buffer.deinit();
 
     var self: Renderer = .{
         .io = io,
         .buffer = buffer,
-        .entity = entity,
     };
     self.buffer.clear(self.clear_color);
     return self;
@@ -34,15 +32,19 @@ pub fn init(
 
 pub fn deinit(self: *Renderer) void {
     self.wait();
+    self.world.deinit(self.buffer.allocator);
     self.buffer.deinit();
     self.* = undefined;
 }
 
-pub fn start(self: *Renderer) !void {
+pub fn start(self: *Renderer, world: *const ray.HittableList) !void {
     if (self.isRendering()) {
         return;
     }
     self.wait();
+    const snapshot = try world.clone(self.buffer.allocator);
+    self.world.deinit(self.buffer.allocator);
+    self.world = snapshot;
     self.buffer.clear(self.clear_color);
     self.running.store(true, .release);
     self.thread = std.Thread.spawn(.{}, work, .{self}) catch |err| {
@@ -64,7 +66,7 @@ pub fn wait(self: *Renderer) void {
 
 fn work(self: *Renderer) void {
     const start_ns = nowNs(self.io);
-    ray.render(&self.buffer, self.entity) catch |err| {
+    ray.render(&self.buffer, &self.world) catch |err| {
         std.debug.print("Error rendering: {}\n", .{err});
     };
     self.elapsed_ns = nowNs(self.io) - start_ns;

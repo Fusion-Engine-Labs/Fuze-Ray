@@ -2,6 +2,7 @@ const Renderer = @import("renderer.zig");
 const gui_glfw = @import("zGUI_glfw");
 const ui = @import("ui.zig");
 const gui = @import("zGUI");
+const ray = @import("ray");
 const std = @import("std");
 
 const render_width = 1920;
@@ -39,12 +40,15 @@ pub fn main(init: std.process.Init) !void {
     try gl.syncFontAtlas(&font_atlas);
     state.setFontAtlas(&font_atlas);
 
+    var world = ray.HittableList.init();
+    defer world.deinit(gpa);
+    try world.add(gpa, .{ .sphere = ui.default_sphere });
+
     var renderer = try Renderer.init(
         gpa,
         io,
         render_width,
         render_height,
-        ui.initialEntity(),
     );
     defer renderer.deinit();
 
@@ -55,7 +59,7 @@ pub fn main(init: std.process.Init) !void {
     );
     defer gl.destroyTexture(&texture);
 
-    var panel = try ui.Panel.init(gpa, &state, texture);
+    var panel = try ui.Panel.init(gpa, &state, texture, &world);
     defer panel.deinit(&state);
 
     var last_cursor: ?gui.CursorKind = null;
@@ -96,10 +100,9 @@ pub fn main(init: std.process.Init) !void {
         });
 
         try panel.update(&state);
-        renderer.entity = panel.entity();
 
         if (panel.startClicked(&state)) {
-            try renderer.start();
+            try renderer.start(&world);
             render_pending = true;
         }
 

@@ -6,6 +6,7 @@ const HitRecord = @This();
 p: v.Point,
 normal: v.Vec3,
 t: f64,
+color: v.Color,
 front_face: bool,
 
 pub fn set_face_normal(self: *HitRecord, ray: *const Ray, outward_normal: v.Vec3) void {

@@ -17,6 +17,10 @@ pub fn deinit(self: *HittableList, allocator: std.mem.Allocator) void {
     self.hittables.deinit(allocator);
 }
 
+pub fn clone(self: *const HittableList, allocator: std.mem.Allocator) !HittableList {
+    return .{ .hittables = try self.hittables.clone(allocator) };
+}
+
 pub fn clear(self: *HittableList) void {
     self.hittables.clearRetainingCapacity();
 }
@@ -26,15 +30,13 @@ pub fn add(self: *HittableList, allocator: std.mem.Allocator, obj: Hittable) !vo
 }
 
 pub fn hit(self: *const HittableList, ray: *const Ray, ray_t: Interval, hit_record: *HitRecord) bool {
-    var temp_rec: HitRecord = undefined;
     var hit_anything = false;
     var closest_so_far = ray_t.max;
 
     for (self.hittables.items) |obj| {
-        if (obj.hit(ray, ray_t, hit_record)) {
+        if (obj.hit(ray, .init(ray_t.min, closest_so_far), hit_record)) {
             hit_anything = true;
             closest_so_far = hit_record.t;
-            temp_rec = hit_record.*;
         }
     }
 

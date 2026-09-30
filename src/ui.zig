@@ -7,7 +7,6 @@ const side_panel_width = 300;
 const side_panel_padding = 12;
 const body_padding = 8;
 const body_gap = 8;
-const wheel_diameter = side_panel_width - side_panel_padding * 2;
 
 pub const chrome_width = side_panel_width + body_gap + body_padding * 2;
 pub const chrome_height = toolbar_height + body_padding * 2;
@@ -20,25 +19,15 @@ const text_color = gui.Color.rgba(226, 232, 242, 255);
 const muted_text_color = gui.Color.rgba(150, 162, 182, 255);
 const accent_color = gui.Color.rgba(62, 101, 176, 255);
 
-pub const initial_fill = gui.Color.rgba(62, 140, 220, 255);
-
-/// The picker speaks `gui.Color` and the tracer core speaks `ray.Rgba`; this is
-/// the only place the two representations meet.
 fn toRgba(color: gui.Color) ray.Rgba {
     return .{ .r = color.r, .g = color.g, .b = color.b, .a = color.a };
 }
 
-const initial_position: [3]f64 = .{ 0, 0, -1 };
-const initial_radius: f64 = 0.5;
-
-/// Seed for `Renderer.entity`, so the starting scene is stated exactly once.
-pub fn initialEntity() ray.Entity {
-    return .{
-        .fill = toRgba(initial_fill),
-        .position = initial_position,
-        .radius = initial_radius,
-    };
+fn toGuiColor(color: ray.Rgba) gui.Color {
+    return gui.Color.rgba(color.r, color.g, color.b, color.a);
 }
+
+pub const default_sphere: ray.Sphere = .{ .center = .{ 0, 0, -1 }, .radius = 0.5, .color = .{ .r = 62, .g = 140, .b = 220 } };
 
 pub const Stats = struct {
     fps: ?f32,
@@ -75,8 +64,9 @@ const position_axis_labels = [3][]const u8{ "X", "Y", "Z" };
 const position_field_options: gui.NumericOptions = .{ .step = 0.1, .width = .fill };
 const radius_slider_options: gui.SliderOptions = .{ .min = 0.05, .max = 2.0, .step = 0.05 };
 
-pub const Panel = struct {
-    nodes: Nodes,
+const SphereControls = struct {
+    row: gui.NodeId,
+    remove_button: gui.NodeId,
     picker: gui.ColorPicker,
     color: gui.Color,
     position_fields: [3]gui.NumericField,
@@ -84,34 +74,50 @@ pub const Panel = struct {
     radius_slider: gui.Slider,
     radius_value_label: gui.NodeId,
     radius: f32,
-    fit: Fit = .{},
 
-    pub fn init(
+    fn init(
         allocator: std.mem.Allocator,
         state: *gui.Ui,
-        texture: gui.TextureHandle,
-    ) !Panel {
-        const nodes = try build(state, texture);
-        const picker = try gui.ColorPicker.init(allocator, state, nodes.side_panel, initial_fill, .{
-            .wheel_diameter = wheel_diameter,
+        parent: gui.NodeId,
+        sphere: ray.Sphere,
+    ) !SphereControls {
+        const row = try gui.widgets.panel(state, parent, .{
+            .width = .fill,
+            .height = .{ .px = 198 },
+            .direction = .column,
+            .gap = 6,
+        });
+        errdefer state.destroySubtree(row);
+
+        const remove_button = try gui.widgets.button(state, row, "Remove", .{
+            .width = .fill,
+            .height = .{ .px = 28 },
+            .padding = gui.Edges{ .left = 12, .right = 12, .top = 6, .bottom = 6 },
+            .background = panel_color,
+            .border_color = border_color,
+            .border_width = 1,
+            .radius = gui.CornerRadii.all(5),
+            .text_align = .center,
         });
 
-        _ = try divider(state, nodes.side_panel);
-        _ = try heading(state, nodes.side_panel, "Position & Radius");
+        const color = toGuiColor(sphere.color);
+        const color_row = try labeledRow(state, row, "C");
+        var picker = try gui.ColorPicker.init(allocator, state, color_row, color, .{});
+        errdefer picker.deinit(state);
 
+        const center: [3]f64 = sphere.center;
         var position: [3]f32 = undefined;
         var position_fields: [3]gui.NumericField = undefined;
         var fields_initialized: usize = 0;
         errdefer for (position_fields[0..fields_initialized]) |*field| field.deinit(state);
         for (&position_fields, 0..) |*field, i| {
-            position[i] = @floatCast(initial_position[i]);
-            const row = try labeledRow(state, nodes.side_panel, position_axis_labels[i]);
-            field.* = try gui.NumericField.initF32(allocator, state, row, position[i], position_field_options);
+            position[i] = @floatCast(center[i]);
+            const axis_row = try labeledRow(state, row, position_axis_labels[i]);
+            field.* = try gui.NumericField.initF32(allocator, state, axis_row, position[i], position_field_options);
             fields_initialized += 1;
         }
 
-        const radius: f32 = @floatCast(initial_radius);
-        const radius_row = try labeledRow(state, nodes.side_panel, "R");
+        const radius_row = try labeledRow(state, row, "R");
         var radius_slider = try gui.Slider.init(state, radius_row, radius_slider_options);
         errdefer radius_slider.deinit(state);
         const radius_value_label = try gui.widgets.label(state, radius_row, "", .{
@@ -124,33 +130,27 @@ pub const Panel = struct {
         });
 
         return .{
-            .nodes = nodes,
+            .row = row,
+            .remove_button = remove_button,
             .picker = picker,
-            .color = initial_fill,
+            .color = color,
             .position_fields = position_fields,
             .position = position,
             .radius_slider = radius_slider,
             .radius_value_label = radius_value_label,
-            .radius = radius,
+            .radius = @floatCast(sphere.radius),
         };
     }
 
-    pub fn deinit(self: *Panel, state: *gui.Ui) void {
+    fn deinit(self: *SphereControls, state: *gui.Ui) void {
         self.picker.deinit(state);
         for (&self.position_fields) |*field| field.deinit(state);
         self.radius_slider.deinit(state);
+        state.destroySubtree(self.row);
         self.* = undefined;
     }
 
-    pub fn entity(self: *const Panel) ray.Entity {
-        return .{
-            .fill = toRgba(self.color),
-            .position = .{ self.position[0], self.position[1], self.position[2] },
-            .radius = self.radius,
-        };
-    }
-
-    pub fn update(self: *Panel, state: *gui.Ui) !void {
+    fn update(self: *SphereControls, state: *gui.Ui, sphere: *ray.Sphere) !void {
         _ = try self.picker.update(state, &self.color);
         for (&self.position_fields, 0..) |*field, i| {
             _ = try field.updateF32(state, &self.position[i], position_field_options);
@@ -158,6 +158,82 @@ pub const Panel = struct {
         _ = try self.radius_slider.update(state, &self.radius, radius_slider_options);
         var radius_buf: [16]u8 = undefined;
         try state.setText(self.radius_value_label, try std.fmt.bufPrint(&radius_buf, "{d:.2}", .{self.radius}));
+        sphere.center = .{ self.position[0], self.position[1], self.position[2] };
+        sphere.radius = self.radius;
+        sphere.color = toRgba(self.color);
+    }
+};
+
+pub const Panel = struct {
+    allocator: std.mem.Allocator,
+    world: *ray.HittableList,
+    nodes: Nodes,
+    add_button: gui.NodeId,
+    controls: std.ArrayList(SphereControls) = .empty,
+    fit: Fit = .{},
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        state: *gui.Ui,
+        texture: gui.TextureHandle,
+        world: *ray.HittableList,
+    ) !Panel {
+        const nodes = try build(state, texture);
+        _ = try divider(state, nodes.side_panel);
+        _ = try heading(state, nodes.side_panel, "Spheres");
+        const add_button = try gui.widgets.button(state, nodes.side_panel, "Add sphere", .{
+            .width = .fill,
+            .height = .{ .px = 28 },
+            .padding = gui.Edges{ .left = 12, .right = 12, .top = 6, .bottom = 6 },
+            .background = accent_color,
+            .foreground = gui.Color.rgba(255, 255, 255, 255),
+            .radius = gui.CornerRadii.all(5),
+            .text_align = .center,
+        });
+
+        var self: Panel = .{
+            .allocator = allocator,
+            .world = world,
+            .nodes = nodes,
+            .add_button = add_button,
+        };
+        errdefer self.controls.deinit(allocator);
+        for (world.hittables.items) |item| {
+            try self.appendControls(state, item.sphere);
+        }
+        return self;
+    }
+
+    pub fn deinit(self: *Panel, state: *gui.Ui) void {
+        for (self.controls.items) |*controls| controls.deinit(state);
+        self.controls.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    fn appendControls(self: *Panel, state: *gui.Ui, sphere: ray.Sphere) !void {
+        var controls = try SphereControls.init(self.allocator, state, self.nodes.side_panel, sphere);
+        errdefer controls.deinit(state);
+        try self.controls.append(self.allocator, controls);
+    }
+
+    pub fn update(self: *Panel, state: *gui.Ui) !void {
+        if (state.clicked(self.add_button)) {
+            try self.world.add(self.allocator, .{ .sphere = default_sphere });
+            errdefer _ = self.world.hittables.pop();
+            try self.appendControls(state, default_sphere);
+        }
+
+        var i: usize = 0;
+        while (i < self.controls.items.len) {
+            if (state.clicked(self.controls.items[i].remove_button)) {
+                var removed = self.controls.orderedRemove(i);
+                removed.deinit(state);
+                _ = self.world.hittables.orderedRemove(i);
+                continue;
+            }
+            try self.controls.items[i].update(state, &self.world.hittables.items[i].sphere);
+            i += 1;
+        }
     }
 
     pub fn startClicked(self: *const Panel, state: *gui.Ui) bool {
@@ -327,6 +403,7 @@ fn build(state: *gui.Ui, texture: gui.TextureHandle) !Nodes {
     const side_panel = try gui.widgets.panel(state, body, .{
         .width = .{ .px = side_panel_width },
         .height = .fill,
+        .overflow_y = .scroll,
         .direction = .column,
         .gap = 10,
         .padding = gui.Edges.all(side_panel_padding),
@@ -354,14 +431,6 @@ fn build(state: *gui.Ui, texture: gui.TextureHandle) !Nodes {
     const render_label = try stat(state, side_panel, "Not rendered");
 
     const fps_label = try stat(state, side_panel, "-- FPS");
-
-    _ = try gui.widgets.panel(state, side_panel, .{
-        .width = .fill,
-        .height = .{ .px = 1 },
-        .background = border_color,
-    });
-
-    _ = try heading(state, side_panel, "Fill Colour");
 
     return .{
         .viewport = viewport,

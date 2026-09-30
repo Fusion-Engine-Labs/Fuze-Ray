@@ -2,16 +2,19 @@ const HitRecord = @import("hit_record.zig");
 const Interval = @import("../interval.zig");
 const v = @import("../vector.zig");
 const Ray = @import("../ray.zig");
+const Rgba = @import("../utils.zig").Rgba;
 
 const Sphere = @This();
 
 center: v.Vec3,
 radius: f64,
+color: Rgba,
 
-pub fn init(center: v.Point, radius: f64) Sphere {
+pub fn init(center: v.Point, radius: f64, color: Rgba) Sphere {
     return .{
         .center = center,
         .radius = radius,
+        .color = color,
     };
 }
 
@@ -41,6 +44,7 @@ pub fn hit(self: Sphere, ray: *const Ray, ray_t: Interval, hit_record: *HitRecor
 
     const outward_normal = (hit_record.p - self.center) / v.splat(self.radius);
     hit_record.set_face_normal(ray, outward_normal);
+    hit_record.color = self.color.toColor();
 
     return true;
 }
