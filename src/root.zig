@@ -1,3 +1,7 @@
+const std = @import("std");
+const HittableList = @import("hittable/hittable_list.zig");
+const HitRecord = @import("hittable/hit_record.zig");
+
 pub const Rgba = @import("utils.zig").Rgba;
 pub const Buffer = @import("buffer.zig");
 const v = @import("vector.zig");
@@ -9,21 +13,17 @@ pub const Entity = struct {
     radius: f64,
 };
 
-fn hit_sphere(center: v.Vec3, radius: f64, ray: *const Ray) bool {
-    const oc = center - ray.origin;
-    const a = v.dot(ray.direction, ray.direction);
-    const b = -2 * v.dot(ray.direction, oc);
-    const c = v.dot(oc, oc) - (radius * radius);
+pub fn render(buf: *Buffer, entity: Entity) !void {
+    var hittables = HittableList.init();
+    defer hittables.deinit(buf.allocator);
 
-    const discriminant = b * b - 4 * a * c;
-    if (discriminant < 0) {
-        return false;
-    }
+    try hittables.add(buf.allocator, .{
+        .sphere = .{
+            .center = v.init(entity.position[0], entity.position[1], entity.position[2]),
+            .radius = entity.radius,
+        },
+    });
 
-    return true;
-}
-
-pub fn render(buf: *Buffer, entity: Entity) void {
     const width: f64 = @floatFromInt(buf.width);
     const height: f64 = @floatFromInt(buf.height);
 
@@ -48,9 +48,10 @@ pub fn render(buf: *Buffer, entity: Entity) void {
             const ray_direction = pixel_center - camera_center;
 
             const ray = Ray.init(camera_center, ray_direction);
-            const c = v.init(entity.position[0], entity.position[1], entity.position[2]);
-            if (hit_sphere(c, entity.radius, &ray)) {
-                pixel.* = entity.fill;
+            // const c = v.init(entity.position[0], entity.position[1], entity.position[2]);
+            var hit_record: HitRecord = undefined;
+            if (hittables.hit(&ray, .init(0, std.math.floatMax(f64)), &hit_record)) {
+                pixel.* = .fromColor(v.splat(0.5) * (hit_record.normal + v.one));
                 continue;
             }
 

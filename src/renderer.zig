@@ -64,7 +64,9 @@ pub fn wait(self: *Renderer) void {
 
 fn work(self: *Renderer) void {
     const start_ns = nowNs(self.io);
-    ray.render(&self.buffer, self.entity);
+    ray.render(&self.buffer, self.entity) catch |err| {
+        std.debug.print("Error rendering: {}\n", .{err});
+    };
     self.elapsed_ns = nowNs(self.io) - start_ns;
     self.running.store(false, .release);
 }
